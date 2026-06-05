@@ -1,0 +1,48 @@
+[project]
+name = "liquid-ai-way-amd-huggingface-wandb-tokyo-hackathon-2026"
+version = "0.1.0"
+description = "Starter kit for the Hack the Liquid WAY hackathon (Tokyo, June 2026): LFM2 fine-tuning on HuggingFace Jobs with W&B Models + Weave observability."
+readme = "README.md"
+# 3.12 only: matches `.python-version` and the UV-script headers. The audio
+# HF Job's E2E runs were verified on 3.12, so the kit standardizes there
+# rather than carry a second version CI has to test (see issue #1).
+requires-python = ">=3.12, <3.13"
+dependencies = [
+  "datasets>=4.2.0",
+  "huggingface-hub[cli]>=0.27.0",
+  "peft>=0.17.1",
+  "torch>=2.8.0",
+  # 4.57.0 was yanked from PyPI ("Error in the setup causing installation issues");
+  # pin >= 4.57.1 so the resolver always skips the bad release.
+  "transformers>=4.57.1",
+  "wandb>=0.22.2",
+  "weave>=0.52.8",  # pulls nest-asyncio transitively (notebook async traces)
+  # `pandas` comes in via `datasets`; verify_run.py just consumes wandb's DataFrame.
+]
+
+[project.optional-dependencies]
+# Audio fine-tuning track (LFM2.5-Audio-1.5B). Heavy deps (torch, torchaudio,
+# librosa, accelerate). Install only if you're working on the audio track.
+audio = [
+  # Pinned to a torchcodec-free main-branch SHA, not the PyPI 1.2.0 release.
+  # 1.2.0 decodes dataset audio through torchcodec, which dlopens FFmpeg libs
+  # (OSError: libavutil.so.58) that neither a clean local box nor the HF Jobs
+  # container ships; this SHA decodes via soundfile (bundled libsndfile) so no
+  # system FFmpeg is needed anywhere. Same pin as scripts/audio/train.py and
+  # scripts/run_eval_audio.py; switch back to a version pin at the next
+  # liquid-audio PyPI release.
+  "liquid-audio @ git+https://github.com/Liquid4All/liquid-audio@84c173b2208271dec130d0af2cfd7333a09433e1",
+  # torch + torchaudio compiled extensions link against the exact peer minor,
+  # so both must resolve to the same minor. liquid-audio constrains each only
+  # with `>=2.8.0` (unbounded), and dropping torchcodec removed the dep that
+  # used to hold torch at 2.8, so without these caps the resolver pairs
+  # torch 2.11 with torchaudio 2.8 and `import torchaudio` dies with a dylib
+  # symbol error. Pin both minors. Caught by the first real E2E run of
+  # scripts/run_eval_audio.py.
+  "torch>=2.8,<2.9",
+  "torchaudio>=2.8,<2.9",
+  # liquid-audio decodes via soundfile (transitively, through librosa); the
+  # kit's _smoke.py + run_eval_audio.py also WRITE wavs with it. Declared
+  # directly because the kit imports it directly.
+  "soundfile>=0.12",
+]
