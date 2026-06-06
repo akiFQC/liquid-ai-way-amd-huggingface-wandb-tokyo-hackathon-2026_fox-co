@@ -301,22 +301,151 @@ MODEL=... PROVIDER=... uv run experiments/01_data_processing/synthesize_data.py 
 主なオプション: `--reps`（同一組み合わせの生成本数）、`--limit-situations`、`--temperature`、`--seed`（値生成の再現）、`--overwrite`（resume せず作り直す）。
 
 
-###
 
 ### 4. データの混合とデータ拡張
 
 1と3で作成したデータを混合する。
 
-#### 3つのデータの統計上の整理
+#### 3つのデータの統計をとる
 
-
-
-
-
-このとき、
+```bash
+uv run experiments/01_data_processing/stats_datasets.py
 ```
+各データセットのカテゴリ別件数・行数・行カバー率と、3データセット合算の統計を表示する。
+
+作成データの統計の例:
+
 ```
+[合計 (OpenPII 1.5M (ja) + ner-wikipedia-dataset + synthetic)] 30,897 rows
+カテゴリ                  件数合計    行数合計    行カバー率
+------------------  ------  ------  -------
+address             20,347  13,537    43.8%
+company_name        15,025  12,377    40.1%
+email_address       11,147  10,416    33.7%
+human_name          35,228  16,514    53.4%
+phone_number         8,472   8,054    26.1%
+account_identifier  12,956   8,496    27.5%
+network_identifier     759     600     1.9%
+system_config          775     600     1.9%
+project_info         1,215     848     2.7%
+financial_info      10,170   7,996    25.9%
+transaction_id         771     600     1.9%
+```
+
+
+#### データの結合によるデータ拡張
+
+次のようなアルゴリズムでデータを拡張する
+
+1. 3つのデータをまとめて、2~4件をランダムに選ぶ. この時データソースごとにキューが作って重複なしサンプリングするようにする。
+2. 選ばれた2~4サンプルのテキストをランダムに並び替えて、結合する。(区切り文字は「。」「\n」をランダムに選ぶ)
+3. 選ばれた2~4サンプルのラベルの和をとって2の結合テキストに対するannotation_jsonを構成する。
+
+終わったら、拡張されたテキストのラベル統計を計算し、japanese mixed confidential information exstraction dataset  として保存します。
+
+**実行方法**
+
+```bash
+# デフォルト: 10,000件生成、ネガティブサンプル10%混入
+uv run experiments/01_data_processing/augment_datasets.py
+
+# オプション例
+uv run experiments/01_data_processing/augment_datasets.py \
+    --n-augmented 20000 \   # 生成件数
+    --negative-ratio 0.2 \ # 全カテゴリ空サンプルの割合 (0.0〜1.0未満)
+    --seed 123              # 乱数シード
+```
+
+出力先: `experiments/data/mixed_dataset/`（HuggingFace Arrow形式）
+
+**主な設計ポイント**
+- IDF重み付きサンプリングにより、レアカテゴリ（`network_identifier`, `system_config`, `transaction_id` 等）を含むサンプルが優先的に選ばれる
+- `--negative-ratio` で全カテゴリ空（ネガティブ）サンプルの割合を調整できる（デフォルト10%）
+
 
 ###　5. データ整形
 
-###　6. 
+`experiments/02_training_and_eval` で使用できるように、chat message形式のデータのカラムを追加し, SFT-readyなデータに整形します。「　6. HFへのアップロード」に向けてデータ名や情報なども整理しておきます。
+
+**実行方法**
+
+```bash
+# デフォルト: mixed + 元の3ソースを統合、validation 5%
+uv run experiments/01_data_processing/format_sft.py
+
+# mixed のみ使用する場合
+uv run experiments/01_data_processing/format_sft.py --no-include-originals
+
+# オプション一覧
+uv run experiments/01_data_processing/format_sft.py --help
+```
+
+出力先: `experiments/data/sft_dataset/`
+
+| ファイル | 内容 |
+| --- | --- |
+| `train/` | 学習データ（Arrow形式）|
+| `validation/` | 検証データ（Arrow形式）|
+| `metadata.json` | HF Upload 用メタ情報 |
+
+各行の `messages` 列は `[system, user, assistant]` の3ターン構成。
+
+```python
+# ロード例
+from datasets import load_from_disk
+ds = load_from_disk("experiments/data/sft_dataset/train")
+ds[0]["messages"]
+# [{"role": "system", "content": "..."}, {"role": "user", "content": "<入力テキスト>"}, {"role": "assistant", "content": "<annotation_json>"}]
+```
+
+
+###　6. HFへのアップロード
+
+`sft_dataset` を HuggingFace Hub の dataset リポジトリに push します。
+
+#### 事前準備
+
+1. **HF_TOKEN を WRITE スコープで発行する**  
+   [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) で新規トークンを作成し、`.env` に記述する。
+
+   ```
+   HF_TOKEN=hf_...
+   ```
+
+2. **アップロード先リポジトリ名を決める**  
+   例: `<your-hf-username>/japanese-confidential-information-extraction-sft`
+
+#### 実行方法
+
+```bash
+# アップロード（--repo-id は必須）
+uv run experiments/01_data_processing/upload_to_hub.py \
+    --repo-id <your-hf-username>/japanese-confidential-information-extraction-sft
+
+# プライベートリポジトリとして作成する場合
+uv run experiments/01_data_processing/upload_to_hub.py \
+    --repo-id <your-hf-username>/japanese-confidential-information-extraction-sft \
+    --private
+
+# 内容確認のみ（実際にはアップロードしない）
+uv run experiments/01_data_processing/upload_to_hub.py \
+    --repo-id <your-hf-username>/japanese-confidential-information-extraction-sft \
+    --dry-run
+```
+
+#### アップロードされる内容
+
+| スプリット | 行数（目安）| 内容 |
+| --- | --- | --- |
+| `train` | ~38,000 | 学習データ |
+| `validation` | ~2,000 | 検証データ |
+
+各行は `messages` 列のみを持ち、`[system, user, assistant]` の3ターン構成。
+
+#### アップロード後の利用
+
+```bash
+# train.py から直接ロードして fine-tune
+DATASET=<your-hf-username>/japanese-confidential-information-extraction-sft \
+  ./scripts/text/launch_hf_job.sh
+```
