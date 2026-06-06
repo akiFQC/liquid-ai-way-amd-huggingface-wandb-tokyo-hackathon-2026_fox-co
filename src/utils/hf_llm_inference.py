@@ -1,0 +1,1 @@
+# データ合成用にHFのnference Providersのラッパーモジュール
