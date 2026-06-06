@@ -20,10 +20,7 @@
 #   LR, OUTPUT_DIR, PUSH_TO_HUB, WANDB_RUN_NAME, EVAL_SPLIT_RATIO
 #
 # NOTE: HF Jobs は単一ファイルのみアップロードするため、eval.py と
-# chat_template.jinja はコンテナ内で参照できません。
-# EVAL_SAMPLES は常に 0 に強制されます。
-# chat template を使用する場合は train.py にインライン化してから submit してください。
-# 詳細は README.md の「HuggingFace Jobs での実行」を参照。
+# chat_template.jinja は train.py にインライン化済み。
 #
 # Hardware flavors: https://huggingface.co/docs/hub/jobs-pricing
 
@@ -48,9 +45,9 @@ SCRIPT="$REPO_ROOT/experiments/02_training_and_eval/train.py"
 
 # Forward each optional training override as `--env VAR=value` (only those
 # that are set).
-ENV_ARGS=(--env "DATASET=$DATASET" --env "EVAL_SAMPLES=0")
+ENV_ARGS=(--env "DATASET=$DATASET")
 for var in MODEL_ID DATASET_SLICE DATASET_MAPPER MAX_STEPS BATCH_SIZE \
-  LR OUTPUT_DIR PUSH_TO_HUB WANDB_RUN_NAME EVAL_SPLIT_RATIO; do
+  LR OUTPUT_DIR PUSH_TO_HUB WANDB_RUN_NAME EVAL_SPLIT_RATIO EVAL_SAMPLES; do
   if [[ -n "${!var:-}" ]]; then
     ENV_ARGS+=(--env "$var=${!var}")
   fi
@@ -66,7 +63,6 @@ echo "  flavor:    $HF_FLAVOR  (rates: https://huggingface.co/docs/hub/jobs-pric
 echo "  timeout:   $HF_TIMEOUT  (billing stops here at the latest)"
 echo "  dataset:   $DATASET"
 echo "  W&B:       $WANDB_ENTITY/$WANDB_PROJECT"
-echo "  note:      EVAL_SAMPLES forced to 0 (eval.py not available in HF Jobs container)"
 [[ -n "${PUSH_TO_HUB:-}" ]] && echo "  push to:   $PUSH_TO_HUB"
 [[ -n "${HF_NAMESPACE:-}" ]] && echo "  namespace: $HF_NAMESPACE"
 case "${DRY_RUN:-}" in 1 | true | TRUE | True) _dry_run=1 ;; *) _dry_run=0 ;; esac

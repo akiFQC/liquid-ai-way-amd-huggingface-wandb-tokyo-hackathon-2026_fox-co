@@ -26,8 +26,8 @@ scripts/text/train.py をベースに、以下を追加:
   - chat_template.jinja をトークナイザーに注入
   - 学習後に JSON parse 成功率・カテゴリ別エンティティF1 を評価してW&Bに記録
 
-NOTE: HF Jobs に提出する場合は chat_template.jinja をこのスクリプト内に
-インライン化すること（HF Jobs は単一ファイルをアップロードするため）。
+NOTE: chat_template.jinja と eval.py は HF Jobs 単一ファイル制約のため
+このスクリプト内にインライン化済み。
 
 Env overrides (all optional unless noted):
 
@@ -50,7 +50,6 @@ Env overrides (all optional unless noted):
 from __future__ import annotations
 
 import os
-import pathlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -59,6 +58,62 @@ if TYPE_CHECKING:
     from transformers import PreTrainedModel, PreTrainedTokenizerBase
     from trl import SFTTrainer
     from wandb.sdk.wandb_run import Run
+
+
+# ---------------------------------------------------------------------------
+# Chat template (inlined from chat_template.jinja for HF Jobs single-file compatibility)
+# ---------------------------------------------------------------------------
+
+_CHAT_TEMPLATE = r"""{{- bos_token -}}
+{%- set ns = namespace(system_prompt="") -%}
+
+{# --- 1. Extract system prompt if provided --- #}
+{%- if messages[0]["role"] == "system" -%}
+  {%- set ns.system_prompt = messages[0]["content"] -%}
+  {%- set messages = messages[1:] -%}
+{%- else -%}
+  {# --- 2. Default system prompt if none provided --- #}
+  {%- set ns.system_prompt = "あなたはテキストから社外秘の固有表現を抽出するアシスタントです。入力テキストを分析し、以下の11カテゴリの機密情報を抽出して、必ずJSON形式のみで出力してください。\n\nカテゴリ定義:\n- address: 住所・所在地\n- company_name: 企業・研究機関・組織名\n- email_address: メールアドレス\n- human_name: 人名\n- phone_number: 電話番号\n- account_identifier: アカウント識別子（ユーザーID・アカウント名・従業員番号・社会保障番号・マイナンバー等）\n- network_identifier: ネットワーク識別情報（IPアドレス・MACアドレス・内部ドメイン・ホスト名）\n- system_config: システム構成情報（ファイルパス・ディレクトリ構造・DBテーブル/カラム名）\n- project_info: プロジェクト関連情報（プロジェクト名・開発コードネーム・未発表の製品/機能名）\n- financial_info: 金額・財務情報（売上・原価・利益率・契約金額・個人の給与/報酬額）\n- transaction_id: 取引管理番号（契約書番号・請求書番号・見積書番号・顧客管理ID）\n\n出力形式（全キーを必ず含め、該当なしは空リスト）:\n{\"address\": [], \"company_name\": [], \"email_address\": [], \"human_name\": [], \"phone_number\": [], \"account_identifier\": [], \"network_identifier\": [], \"system_config\": [], \"project_info\": [], \"financial_info\": [], \"transaction_id\": []}" -%}
+{%- endif -%}
+
+{# --- 3. Add tool list if any --- #}
+{%- if tools -%}
+  {%- set ns.system_prompt = ns.system_prompt + ("
+" if ns.system_prompt else "") + "List of tools: <|tool_list_start|>[" -%}
+  {%- for tool in tools -%}
+    {%- if tool is not string -%}
+      {%- set tool = tool | tojson -%}
+    {%- endif -%}
+    {%- set ns.system_prompt = ns.system_prompt + tool -%}
+    {%- if not loop.last -%}
+      {%- set ns.system_prompt = ns.system_prompt + ", " -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- set ns.system_prompt = ns.system_prompt + "]<|tool_list_end|>" -%}
+{%- endif -%}
+
+{# --- 4. Render system prompt --- #}
+{%- if ns.system_prompt -%}
+  {{- "<|im_start|>system\n" + ns.system_prompt + "<|im_end|>\n" -}}
+{%- endif -%}
+
+{# --- 5. Render all conversation messages --- #}
+{%- for message in messages -%}
+  {{- "<|im_start|>" + message["role"] + "\n" -}}
+  {%- set content = message["content"] -%}
+  {%- if content is not string -%}
+    {%- set content = content | tojson -%}
+  {%- endif -%}
+  {%- if message["role"] == "tool" -%}
+    {%- set content = "<|tool_response_start|>" + content + "<|tool_response_end|>" -%}
+  {%- endif -%}
+  {{- content + "<|im_end|>\n" -}}
+{%- endfor -%}
+
+{# --- 6. Append generation prompt for assistant --- #}
+{%- if add_generation_prompt -%}
+  {{- "<|im_start|>assistant\n" -}}
+{%- endif -%}"""
 
 
 # ---------------------------------------------------------------------------
@@ -418,11 +473,7 @@ def load_base_model(model_id: str) -> tuple[PreTrainedModel, PreTrainedTokenizer
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
 
-    # Inject the fox-co PII extraction chat template.
-    # NOTE: if submitting to HF Jobs, inline this template as a string constant
-    # since HF Jobs uploads a single script file.
-    template_path = pathlib.Path(__file__).parent / "chat_template.jinja"
-    tok.chat_template = template_path.read_text(encoding="utf-8")
+    tok.chat_template = _CHAT_TEMPLATE
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
@@ -524,6 +575,15 @@ def push_checkpoint(folder: str, repo_id: str, run: Run) -> None:
 def main() -> None:
     import torch
     import wandb
+
+    if not torch.cuda.is_available():
+        raise SystemExit(
+            "[fox-co] CUDA not available. This script requires a GPU.\n"
+            f"  torch={torch.__version__}  device_count={torch.cuda.device_count()}\n"
+            "  On HF Jobs, request a GPU flavor (e.g. HF_FLAVOR=a100-large)."
+        )
+    print(f"[fox-co] CUDA OK: {torch.cuda.device_count()} device(s), "
+          f"{torch.cuda.get_device_name(0)}")
 
     dataset_name = os.environ.get("DATASET")
     if not dataset_name:
