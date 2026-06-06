@@ -262,3 +262,5 @@ for category in all_categories:
 dataset= positive_data + positive_data
 ```
 これはあくまで例です。実際にはfew-shot promptingなどで例を与えたりしています。
+
+データ合成には`src/utils/hf_llm_inference.py`をモジュールとして使います。
