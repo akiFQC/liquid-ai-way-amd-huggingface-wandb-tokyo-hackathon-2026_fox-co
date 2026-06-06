@@ -50,7 +50,13 @@ Env overrides (all optional unless noted):
 from __future__ import annotations
 
 import os
+import pathlib
+import sys
 from typing import TYPE_CHECKING
+
+# Allow `import eval` from the same directory regardless of working directory.
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+from eval import EvalResult, run_eval, log_to_wandb, print_report  # noqa: E402
 
 if TYPE_CHECKING:
     from datasets import Dataset
@@ -198,8 +204,6 @@ def load_training_dataset(
 
 def load_base_model(model_id: str) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     """Load tokenizer + model with the fox-co chat template injected."""
-    import pathlib
-
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -276,129 +280,6 @@ def build_trainer(
         train_dataset=dataset,
         processing_class=tok,
         peft_config=peft_config,
-    )
-
-
-_PII_CATEGORIES = [
-    "address",
-    "company_name",
-    "email_address",
-    "human_name",
-    "phone_number",
-    "account_identifier",
-    "network_identifier",
-    "system_config",
-    "project_info",
-    "financial_info",
-    "transaction_id",
-]
-
-
-def eval_model(
-    model: PreTrainedModel,
-    tok: PreTrainedTokenizerBase,
-    eval_ds: Dataset,
-    n_samples: int,
-    run: Run,
-) -> None:
-    """Post-training evaluation: JSON parse rate + per-category entity F1."""
-    import json
-
-    import torch
-
-    # CRITICAL: training leaves dropout active; must call eval() before generate().
-    model.eval()
-
-    actual = min(n_samples, len(eval_ds))
-    if actual == 0:
-        return
-
-    samples = eval_ds.select(range(actual))
-    json_ok = 0
-    cat_stats: dict[str, dict[str, int]] = {
-        k: {"tp": 0, "fp": 0, "fn": 0} for k in _PII_CATEGORIES
-    }
-
-    for row in samples:
-        msgs = row["messages"]
-        prompt_msgs = [m for m in msgs if m["role"] != "assistant"]
-        gold_str = next((m["content"] for m in msgs if m["role"] == "assistant"), "{}")
-
-        inputs = tok.apply_chat_template(
-            prompt_msgs,
-            add_generation_prompt=True,
-            return_tensors="pt",
-            tokenize=True,
-            return_dict=True,
-        ).to(model.device)
-
-        with torch.no_grad():
-            gen = model.generate(
-                **inputs,
-                do_sample=True,
-                temperature=0.3,
-                min_p=0.15,
-                repetition_penalty=1.05,
-                max_new_tokens=512,
-            )
-
-        new_tokens = gen[0][inputs["input_ids"].shape[1]:]
-        raw_output = tok.decode(new_tokens, skip_special_tokens=True).strip()
-
-        try:
-            pred = json.loads(raw_output)
-            if not isinstance(pred, dict):
-                raise ValueError
-            json_ok += 1
-        except (json.JSONDecodeError, ValueError):
-            pred = {}
-
-        try:
-            gold = json.loads(gold_str)
-        except (json.JSONDecodeError, ValueError):
-            gold = {}
-
-        for key in _PII_CATEGORIES:
-            pred_set = set(pred.get(key, []) if isinstance(pred.get(key), list) else [])
-            gold_set = set(gold.get(key, []) if isinstance(gold.get(key), list) else [])
-            cat_stats[key]["tp"] += len(pred_set & gold_set)
-            cat_stats[key]["fp"] += len(pred_set - gold_set)
-            cat_stats[key]["fn"] += len(gold_set - pred_set)
-
-    total_tp = total_fp = total_fn = 0
-    per_cat: dict[str, dict[str, float]] = {}
-    for key in _PII_CATEGORIES:
-        tp = cat_stats[key]["tp"]
-        fp = cat_stats[key]["fp"]
-        fn = cat_stats[key]["fn"]
-        total_tp += tp
-        total_fp += fp
-        total_fn += fn
-        p = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        r = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-        f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
-        per_cat[key] = {"precision": p, "recall": r, "f1": f1}
-
-    mp = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
-    mr = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
-    mf1 = 2 * mp * mr / (mp + mr) if (mp + mr) > 0 else 0.0
-    json_parse_rate = json_ok / actual
-
-    log_dict: dict[str, float] = {
-        "eval/json_parse_rate": json_parse_rate,
-        "eval/micro_precision": mp,
-        "eval/micro_recall": mr,
-        "eval/micro_f1": mf1,
-    }
-    for key in _PII_CATEGORIES:
-        log_dict[f"eval/{key}/precision"] = per_cat[key]["precision"]
-        log_dict[f"eval/{key}/recall"] = per_cat[key]["recall"]
-        log_dict[f"eval/{key}/f1"] = per_cat[key]["f1"]
-
-    run.log(log_dict)
-    print(
-        f"[fox-co] eval ({actual} samples): "
-        f"json_parse_rate={json_parse_rate:.3f} micro_f1={mf1:.3f}"
     )
 
 
@@ -504,7 +385,9 @@ def main() -> None:
         eval_target = model
 
     if eval_ds is not None and eval_samples > 0:
-        eval_model(eval_target, tok, eval_ds, eval_samples, run)
+        result = run_eval(eval_target, tok, eval_ds, eval_samples)
+        print_report(result)
+        log_to_wandb(result, run)
 
     if not skip_training:
         save_merged_checkpoint(trainer, tok, output_dir)
