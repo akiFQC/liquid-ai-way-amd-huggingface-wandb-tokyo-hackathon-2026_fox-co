@@ -1,0 +1,440 @@
+# category_breakdown.yaml
+# ステップ1の変換結果で既存データセットのカバレッジが不足しているFOX_COカテゴリの詳細定義。
+# 各カテゴリのサブタイプ・発生シチュエーション・例を記述し、合成データ生成の仕様として使用する。
+#
+# 対象カテゴリ:
+#   - network_identifier : 完全未カバー（OpenPII 0件・ner-wikipedia 0件）
+#   - system_config      : 完全未カバー（OpenPII 0件・ner-wikipedia 0件）
+#   - financial_info     : 部分カバー（OpenPII: CREDITCARDNUMBER/TAXNUM のみ。金額系は未カバー）
+#   - transaction_id     : 完全未カバー（OpenPII 0件・ner-wikipedia 0件）
+
+network_identifier:
+  description: "ネットワーク識別情報 — IPアドレス（特にローカルIP）、MACアドレス、内部ドメイン・ホスト名"
+  existing_coverage: 0  # OpenPII・ner-wikipedia ともに 0件
+  subtypes:
+    - name: local_ip_v4
+      description: "プライベートIPv4アドレス（RFC 1918範囲: 192.168.x.x / 10.x.x.x / 172.16-31.x.x）"
+      examples:
+        - "192.168.1.15"
+        - "10.0.0.254"
+        - "172.16.0.1"
+        - "10.100.50.23"
+    - name: local_ip_v6
+      description: "リンクローカル・ユニークローカルIPv6アドレス（fe80:: / fd00:: 等、内部ネットワーク限定）"
+      examples:
+        - "fe80::1a2b:3c4d:5e6f:7890"
+        - "fd00::1"
+        - "fd12:3456:789a::1"
+    - name: subnet_cidr
+      description: "サブネット・CIDRブロック表記（ネットワーク範囲の特定に使われる）"
+      examples:
+        - "192.168.10.0/24"
+        - "10.0.0.0/8"
+        - "172.16.100.0/22"
+        - "10.50.0.0/16"
+    - name: mac_address
+      description: "MACアドレス（コロン区切りまたはハイフン区切り、6オクテット）"
+      examples:
+        - "00:1B:44:11:3A:B7"
+        - "A4-C3-F0-85-AC-2D"
+        - "08:00:27:ab:cd:ef"
+        - "b8:27:eb:12:34:56"
+    - name: internal_hostname
+      description: "社内ネットワーク上のホスト名（外部DNSに公開されていないサーバー名・PC名）"
+      examples:
+        - "dev-server-01"
+        - "fileserver02"
+        - "db-primary-prod"
+        - "ws-tanaka-pc"
+    - name: internal_domain
+      description: "内部専用ドメイン名・イントラネットFQDN（.local / .intranet / 社内専用サブドメイン等）"
+      examples:
+        - "internal-db.local"
+        - "prod-api.intranet.example.co.jp"
+        - "jenkins.corp.example.com"
+        - "gitlab.internal"
+    - name: internal_url
+      description: "社内システム・イントラネットのURL（外部公開されていないもの）"
+      examples:
+        - "http://intranet.example.local/hr/portal"
+        - "https://confluence.corp.example.com/display/DEV"
+        - "http://192.168.1.100:8080/admin"
+        - "https://grafana.internal/d/api-latency"
+    - name: network_share_path
+      description: "ネットワーク共有フォルダパス（UNC形式 \\\\server\\share 等）"
+      examples:
+        - "\\\\fileserver01\\共有フォルダ\\プロジェクト資料"
+        - "\\\\192.168.1.50\\backup"
+        - "smb://nas.local/documents"
+    - name: port_service
+      description: "内部サービスのポート番号・ポート/プロトコルの組み合わせ（非標準ポートや内部サービスを特定するもの）"
+      examples:
+        - "ポート 5432 で PostgreSQL が待ち受け"
+        - "内部API :8443 に転送"
+        - "Redisは 6379 番ポートで稼働中"
+        - "カスタムアプリ TCP/19876"
+    - name: vpn_wifi_config
+      description: "VPN接続先・社内WiFi SSID など、内部アクセスに必要なネットワーク識別情報"
+      examples:
+        - "VPNサーバー: vpn.corp.example.co.jp"
+        - "社内WiFi SSID: EXAMPLE-CORP-5G"
+        - "WireGuardエンドポイント: 203.0.113.10:51820"
+        - "IPsec ゲートウェイ: gw.example-vpn.local"
+  situations:
+    - "インフラ構成書・ネットワーク図を添付した社内共有メール"
+    - "システム障害時のインシデントレポート・障害票"
+    - "開発環境・本番環境の設定ファイルをコピーしたドキュメント"
+    - "VPN・リモートアクセス設定手順書"
+    - "社内チャット（Slack等）でのトラブルシューティングログ"
+    - "セキュリティ監査ログの抜粋"
+    - "クラウド環境（AWS/Azure/GCP）のセキュリティグループ設定レビュー文書"
+    - "ペネトレーションテスト報告書"
+    - "ファイアウォールルール変更申請書"
+    - "ネットワーク機器（ルーター・スイッチ）の設定変更履歴"
+    - "データセンター移設計画書"
+    - "バックアップサーバーへの接続手順書"
+    - "社内IT資産管理台帳（IPアドレス・MACアドレス割り当て表）"
+    - "オンプレミスとクラウドのハイブリッド構成設計書"
+    - "Zabbix・Nagios等の監視設定ファイルの引用"
+    - "DNSゾーンファイルの一部を含む移行手順書"
+    - "開発者向けローカル環境構築手順書（hostsファイル設定含む）"
+    - "コンテナ（Docker/Kubernetes）のネットワーク設定ドキュメント"
+    - "リモートワーク用PCセットアップガイド（社内VPN設定含む）"
+    - "ISP・通信事業者との回線トラブル対応メール"
+    - "社内セキュリティポリシー違反のインシデントレポート"
+    - "ソフトウェア開発仕様書の通信先エンドポイント一覧"
+    - "社内プリンター・複合機のネットワーク設定マニュアル"
+    - "IPアドレス払い出し申請・IPAM管理台帳"
+    - "DHCPリース情報を含む定期ネットワーク管理レポート"
+    - "開発チームのオンボーディング資料（環境設定手順）"
+    - "社内システムのヘルスチェック定期レポート"
+    - "ゼロトラスト移行プロジェクトの設計・検討文書"
+    - "WireGuard/OpenVPN設定ファイルのレビューメモ"
+    - "SOC（セキュリティオペレーションセンター）の日次レポート"
+
+system_config:
+  description: "システム構成情報 — ファイルパス、ディレクトリ構造、DBテーブル・カラム名、エラーログの断片"
+  existing_coverage: 0  # OpenPII・ner-wikipedia ともに 0件
+  subtypes:
+    - name: file_path_unix
+      description: "Linux/macOS サーバー上の絶対パス（設定ファイル・ログ・デプロイパス等）"
+      examples:
+        - "/var/log/app/error.log"
+        - "/home/deploy/releases/20260601/config/database.yml"
+        - "/etc/nginx/sites-enabled/internal-portal.conf"
+        - "/opt/app/src/services/PaymentService.java"
+    - name: file_path_windows
+      description: "Windows サーバー・PC上のパス（レジストリ・IIS・アプリ設定等）"
+      examples:
+        - "C:\\inetpub\\wwwroot\\api\\Web.config"
+        - "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crash.dmp"
+        - "D:\\deploy\\app\\bin\\Release\\net8.0\\appsettings.json"
+        - "HKLM\\SOFTWARE\\ExampleCorp\\LicenseKey"
+    - name: db_schema_table
+      description: "データベースのスキーマ名・テーブル名（存在自体が設計情報となる）"
+      examples:
+        - "schema_production.financial_records"
+        - "hr_db.employees"
+        - "analytics.raw_events テーブル"
+        - "dw_staging.fact_sales_daily"
+    - name: db_column
+      description: "データベースのカラム名（特に機密フィールド名）"
+      examples:
+        - "users テーブルの password_hash カラム"
+        - "orders.customer_id と payments.amount を JOIN"
+        - "hr_db.employees.salary_amount"
+        - "sessions.auth_token カラム"
+    - name: error_log_stacktrace
+      description: "スタックトレース・エラーログの断片（内部クラス名・パス・行番号を含む）"
+      examples:
+        - "ERROR in /opt/app/src/services/PaymentService.java:142"
+        - "NullPointerException at com.example.internal.UserRepository.findById(UserRepository.java:89)"
+        - "[FATAL] /srv/app/config/secrets.yml: permission denied"
+        - "Traceback: File \"/opt/airflow/dags/etl_pipeline.py\", line 74, in run"
+    - name: env_variable
+      description: "環境変数名・その値の断片（アプリケーション設定・シークレット参照を含む）"
+      examples:
+        - "DATABASE_URL 環境変数が未設定"
+        - "SECRET_KEY を .env から読み込み"
+        - "AWS_ACCESS_KEY_ID は SSM Parameter Store に格納"
+        - "INTERNAL_API_BASE_URL=http://api.internal:8080"
+    - name: config_key_value
+      description: "設定ファイル（YAML/TOML/INI等）のキーと値の組み合わせ"
+      examples:
+        - "max_connections: 200"
+        - "redis_host: cache.internal, redis_port: 6379"
+        - "[database] host=db-primary.local user=app_user"
+        - "worker_processes: 4, timeout: 30"
+    - name: container_image
+      description: "社内コンテナレジストリのイメージ名・タグ（外部公開されていない内部ビルド）"
+      examples:
+        - "registry.internal/backend/api-server:v2.3.1-hotfix"
+        - "docker.corp.example.com/ml-pipeline:20260601-abc123"
+        - "ghcr.io/example-corp/internal-tool:latest"
+    - name: internal_api_endpoint
+      description: "マイクロサービス間通信・内部APIのエンドポイントURL（外部公開なし）"
+      examples:
+        - "http://payment-service.internal:8080/v1/charge"
+        - "grpc://user-service.default.svc.cluster.local:50051"
+        - "http://10.0.1.25:3000/api/internal/health"
+    - name: cron_batch_schedule
+      description: "cronジョブ・バッチ処理のスケジュール定義とスクリプトパスの組み合わせ"
+      examples:
+        - "0 2 * * * /opt/scripts/db_backup.sh"
+        - "毎日03:00に /home/batch/run_etl.py を実行"
+        - "*/5 * * * * /usr/local/bin/health_check.sh >> /var/log/cron.log"
+  situations:
+    - "開発者間のバグ報告・GitHubイシューコメント"
+    - "システム設定手順書・デプロイメントガイド（社内Wiki）"
+    - "障害対応チケット・ポストモーテム文書"
+    - "コードレビューのプルリクエストコメント"
+    - "社内勉強会・技術共有スライドの記述"
+    - "監視ツール（Datadog/CloudWatch等）からのアラートメール"
+    - "CI/CDパイプライン（GitHub Actions/Jenkins）の設定レビュー文書"
+    - "Terraform/Ansible等のインフラコードのレビューコメント"
+    - "データベース移行（マイグレーション）計画書"
+    - "本番環境のログ調査依頼メール"
+    - "AWS Lambda・Cloud Functionsのエラーログを含む障害報告"
+    - "アプリケーションのSLI/SLO定義書（エラー定義・ログパス含む）"
+    - "Jira/Backlogのチケット説明欄（再現手順にパスを含む）"
+    - "API仕様書（Swagger/OpenAPI）のレビューコメント"
+    - "社内技術ブログの下書きレビュー"
+    - "アーキテクチャ設計レビュー会議の議事録"
+    - "クラウドコスト最適化調査レポート（リソースパス含む）"
+    - "Dockerfile・docker-compose.ymlのレビューコメント"
+    - "ログ収集・分析設定（Fluentd/Logstash）の移行手順書"
+    - "バッチ処理スケジュール管理表（スクリプトパス含む）"
+    - "データエンジニアリングのETLパイプライン設計書"
+    - "新入社員向け開発環境セットアップガイド"
+    - "セキュリティ診断結果報告書（脆弱なパス・設定の指摘）"
+    - "マイクロサービスアーキテクチャの依存関係整理資料"
+    - "定期的なディスク使用量レポート（パス情報含む）"
+    - "Kubernetesクラスター管理手順書（ConfigMap/Secret参照）"
+    - "データウェアハウスのスキーマ変更申請書"
+    - "QA・テストチームへの環境構成共有メール"
+    - "インフラ障害の顧客向け報告書（内部設定の言及）"
+    - "開発チーム横断のアーキテクチャ標準化提案資料"
+
+financial_info:
+  description: "金額・財務情報 — 売上、原価、利益率、契約金額、個人の給与・報酬額など"
+  existing_coverage:
+    covered:
+      - label: CREDITCARDNUMBER
+        description: "クレジットカード番号（OpenPIIより約5,000件）"
+      - label: TAXNUM
+        description: "税番号・法人番号（OpenPIIより約4,400件）"
+    uncovered:
+      - "売上金額（事業収益）"
+      - "原価・売上原価"
+      - "利益率・粗利率・営業利益率"
+      - "契約金額・取引金額・発注金額"
+      - "個人の給与・賞与・業務委託報酬額"
+  # 以下は未カバー分のみを合成対象とする
+  subtypes:
+    - name: revenue_sales
+      description: "売上高・受注額・販売実績など事業収益を示す金額"
+      examples:
+        - "今期売上は1億2,500万円を達成"
+        - "Q3の売上高 ¥320,000,000"
+        - "受注残高が合計 8,700万円に達している"
+        - "今月の国内販売実績は4,320万円"
+    - name: cost_cogs
+      description: "原価・売上原価・製造原価など費用側の金額"
+      examples:
+        - "売上原価率が68%を超えており"
+        - "今期の売上原価は6,800万円"
+        - "部品調達コストが前期比 12% 増の2,100万円"
+        - "製造原価 ¥4,500 / 個"
+    - name: profit_margin
+      description: "利益率・粗利率・営業利益・純利益など収益性指標"
+      examples:
+        - "営業利益率 15.3%"
+        - "Q3の粗利は3,200万円（粗利率 42%）"
+        - "当期純利益 ¥780,000,000"
+        - "EBITDA マージン 22.1%"
+    - name: budget_forecast
+      description: "予算額・予測値・計画数値（将来の財務目標）"
+      examples:
+        - "来期予算は総額 2億5,000万円を見込む"
+        - "マーケティング予算 3,500万円のうち"
+        - "売上予測 ¥1,200,000,000（通期）"
+        - "設備投資予算 8,000万円を計上"
+    - name: contract_amount
+      description: "契約金額・取引金額・発注金額・年間ライセンス料など"
+      examples:
+        - "契約金額：5,000,000円（税込）"
+        - "発注金額 $120,000 USD"
+        - "年間ライセンス料 ¥3,600,000"
+        - "業務委託基本料金 月額 800,000円"
+    - name: investment_funding
+      description: "投資額・出資額・調達金額・融資額など"
+      examples:
+        - "シリーズB調達額 15億円"
+        - "設備投資 総額 4億2,000万円"
+        - "銀行融資枠 3億円のうち 1億5,000万円を実行"
+        - "VC出資額 $5M USD"
+    - name: salary_compensation
+      description: "個人の給与・月給・年俸・賞与（氏名や役職と紐づく形で現れることが多い）"
+      examples:
+        - "月給 450,000円"
+        - "年俸 720万円（賞与別途）"
+        - "夏季賞与として基本給の2.5ヶ月分（1,125,000円）を支給"
+        - "管理職手当 月額 50,000円を加算"
+    - name: freelance_fee
+      description: "業務委託・フリーランス・コンサルティング報酬額"
+      examples:
+        - "業務委託報酬 月額 550,000円"
+        - "コンサルティングフィー 時間単価 ¥25,000"
+        - "プロジェクト完了報酬 総額 1,800,000円"
+        - "顧問料 月額 300,000円（税別）"
+    - name: penalty_settlement
+      description: "違約金・損害賠償額・和解金・罰則金など"
+      examples:
+        - "違約金として契約金額の20%（¥1,000,000）を請求"
+        - "損害賠償額 5,000万円で和解が成立"
+        - "遅延損害金 日額 10,000円"
+        - "行政制裁金 ¥3,000,000"
+    - name: commission_fee
+      description: "手数料・仲介料・紹介料・レベニューシェア率など"
+      examples:
+        - "仲介手数料 取引額の3%（¥150,000）"
+        - "代理店マージン 売上の15%"
+        - "決済手数料 3.6% + ¥30/件"
+        - "紹介フィー ¥500,000"
+  situations:
+    - "経営会議・取締役会の議事録"
+    - "契約書・発注書・見積書の本文やメール添付時の説明文"
+    - "社内の給与改定・賞与通知メール"
+    - "四半期・月次業績レポートの共有資料"
+    - "M&A・資本業務提携のデューデリジェンス資料"
+    - "予算申請・稟議書の本文"
+    - "投資家向けIR資料の社内ドラフトレビューメール"
+    - "新規事業の事業計画書・損益計画（P&L）"
+    - "採用面接での報酬交渉メモ・オファーレター"
+    - "福利厚生・報酬制度の社内説明資料"
+    - "経費精算申請書・承認フロー文書（高額案件）"
+    - "税務申告・税理士とのやり取りメール"
+    - "ベンダー選定時の価格比較表を添付した社内共有メール"
+    - "プロジェクト収益性分析レポート"
+    - "社内の事業部間コスト配賦計算書"
+    - "株式報酬（ストックオプション）付与通知書"
+    - "金融機関との融資交渉・条件提示メール"
+    - "人件費・外注費の予実管理表を引用した経営報告メール"
+    - "年次事業計画のKPI・売上目標設定資料"
+    - "不動産賃借・オフィス移転時の費用見積もり比較"
+    - "社内公募・異動に伴う処遇変更通知"
+    - "決算説明会準備資料の内部レビューコメント"
+    - "海外子会社との移転価格算定根拠資料"
+    - "保険契約（法人向け）の更新交渉メール"
+    - "入札・公募案件の見積作成依頼と回答メール"
+    - "SaaS製品の価格改定通知（顧客向け下書き）"
+    - "販売代理店との収益分配率交渉メモ"
+    - "退職金・早期退職優遇制度の試算書"
+    - "クロスボーダー取引の為替換算・決済金額確認メール"
+    - "補助金・助成金の採択額通知メールの転送・共有"
+
+transaction_id:
+  description: "取引管理番号 — 契約書番号、請求書番号、見積書番号、顧客管理ID、発注番号"
+  existing_coverage: 0  # OpenPII・ner-wikipedia ともに 0件
+  subtypes:
+    - name: invoice_number
+      description: "請求書番号（英数字・ハイフン・日付を含む形式が多い）"
+      examples:
+        - "INV-20260606-001"
+        - "請求書番号: 2026-0042"
+        - "INVOICE #JP-2026-00891"
+        - "請求書No. BI-2026-0315"
+    - name: contract_number
+      description: "契約書番号・基本契約番号・個別契約番号"
+      examples:
+        - "契約書番号: CTR-2026-0178"
+        - "基本契約 BCA-JP-2025-0011"
+        - "個別契約番号 SOW-2026-042"
+        - "業務委託契約 MK-2026-0089"
+    - name: purchase_order_number
+      description: "発注書番号（PO番号）・購買依頼番号"
+      examples:
+        - "PO-98765"
+        - "発注番号: PR-2026-04-0321"
+        - "購買依頼番号 REQ-2026-1102"
+        - "PO# 20260601-JP-0045"
+    - name: quotation_number
+      description: "見積書番号・提案書番号"
+      examples:
+        - "見積書No. QT-2026-0034"
+        - "提案書番号 PROP-2026-0089"
+        - "お見積番号: EST-20260530-003"
+        - "Quote #JP2026-Q-0412"
+    - name: customer_id
+      description: "顧客管理ID・取引先コード・CRM管理番号"
+      examples:
+        - "顧客ID: CUST-00421"
+        - "取引先コード: TRD-JP-8821"
+        - "CRM管理番号 C-20260601-0099"
+        - "得意先コード 10042"
+    - name: project_case_code
+      description: "プロジェクトコード・案件番号・工番（社内管理用）"
+      examples:
+        - "案件番号: PROJ-2026-JP-0078"
+        - "工番 W-2026-0412"
+        - "プロジェクトコード: DX-PHASE2"
+        - "受注番号 ORD-20260512-0031"
+    - name: approval_number
+      description: "稟議番号・社内承認番号・申請番号"
+      examples:
+        - "稟議番号: RNG-2026-0234"
+        - "承認番号 APR-20260530-0018"
+        - "購買申請番号 PA-2026-0541"
+        - "経費承認 EXP-2026-0309"
+    - name: shipment_tracking
+      description: "配送追跡番号・出荷伝票番号・物流管理番号"
+      examples:
+        - "送り状番号: 1234-5678-9012"
+        - "出荷伝票番号 SHP-20260605-0042"
+        - "追跡番号: JP1234567890JP"
+        - "入庫伝票 WH-IN-2026-0831"
+    - name: bank_payment_reference
+      description: "銀行振込参照番号・SWIFT参照番号・入金確認番号"
+      examples:
+        - "振込参照番号: TRF-20260601-0089"
+        - "SWIFTトランザクション参照番号: AAAABB2L20260601123456"
+        - "入金確認番号 PMT-2026-0412"
+        - "送金参照 REF: JP202606010001"
+    - name: support_ticket
+      description: "顧客サポートチケット番号・問い合わせ管理番号"
+      examples:
+        - "チケット番号: TKT-2026-08821"
+        - "問い合わせ番号 INC-20260530-0042"
+        - "サポートID: SP-2026-JP-4412"
+        - "障害チケット #29043"
+  situations:
+    - "経理部門の請求書送付・入金確認メール"
+    - "購買管理システムからの発注確認・納品通知メール"
+    - "契約締結時の社内承認フロー文書・稟議"
+    - "顧客サポートの問い合わせ対応履歴"
+    - "受発注管理のSlack通知・社内連絡"
+    - "会計システムのエクスポートデータを引用した報告書"
+    - "物流・配送管理システムからの出荷・配達通知メール"
+    - "電子帳簿保存法対応の書類管理台帳"
+    - "監査法人への証憑提出依頼メール（書類番号を引用）"
+    - "サプライヤーとの支払条件・締め日交渉メール"
+    - "ERPシステム（SAP/Oracle）のトランザクションログ抜粋"
+    - "法務部門の契約書管理台帳"
+    - "クレジット限度額超過時の与信管理通知"
+    - "越境EC・輸出入の通関書類（インボイス番号含む）"
+    - "売掛金・未収金の残高確認依頼メール"
+    - "割賦・リース契約の支払明細書"
+    - "SaaS契約更新・解約手続きメール（契約番号を引用）"
+    - "プロジェクト管理ツールの課題と紐づいた受注番号の共有"
+    - "工事・業務完了報告書（受注番号・工番を含む）"
+    - "健康保険組合・社会保険関連の手続き書類番号通知"
+    - "共同研究・産学連携契約の管理番号通知"
+    - "補助金・助成金申請番号の受付通知メール"
+    - "海外送金時のSWIFTトランザクション参照番号を含む確認メール"
+    - "ポイント・クーポン付与時のキャンペーン処理番号通知"
+    - "法人クレジットカードの利用明細レビュー（請求番号含む）"
+    - "電子署名サービス（DocuSign等）の署名依頼メール（文書ID含む）"
+    - "入札管理システムの案件番号・応札番号の通知"
+    - "倉庫管理システム（WMS）の入出庫伝票番号通知"
+    - "年末調整・源泉徴収票の管理番号通知"
+    - "フランチャイズ加盟契約の番号管理台帳への記載"

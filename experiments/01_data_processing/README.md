@@ -187,3 +187,78 @@ print(json.loads(row["annotation_json"]))
 
 - `network_identifier` / `system_config` / `transaction_id` は両データセットに対応ラベルがないため、常に空リスト `[]` となる。
 - OpenPII 1.5M は多言語データセット（約150万行）だが、`language == "Japanese"` の行のみ抽出して使用する。ダウンロード自体は全言語分が対象となるため時間がかかる。
+
+##### 結果
+```
+
+[OpenPII 1.5M (ja)] 20,754 rows
+  カテゴリ                                  件数        行数       行カバー率
+  ------------------------------  --------  --------  ----------
+  address                           17,082    11,646       56.1%
+  company_name                      10,309     9,362       45.1%
+  email_address                     11,147    10,416       50.2%
+  human_name                        32,248    14,775       71.2%
+  phone_number                       8,472     8,054       38.8%
+  account_identifier                12,956     8,496       40.9%
+  network_identifier                     0         0        0.0%
+  system_config                          0         0        0.0%
+  project_info                           0         0        0.0%
+  financial_info                     9,399     7,396       35.6%
+  transaction_id                         0         0        0.0%
+  
+
+[ner-wikipedia-dataset] 5,343 rows
+  カテゴリ                                  件数        行数       行カバー率
+  ------------------------------  --------  --------  ----------
+  address                            3,265     1,891       35.4%
+  company_name                       4,716     3,015       56.4%
+  email_address                          0         0        0.0%
+  human_name                         2,980     1,739       32.5%
+  phone_number                           0         0        0.0%
+  account_identifier                     0         0        0.0%
+  network_identifier                     0         0        0.0%
+  system_config                          0         0        0.0%
+  project_info                       1,215       848       15.9%
+  financial_info                         0         0        0.0%
+  transaction_id                         0         0        0.0%
+```
+
+### 2. カバレッジ不足カテゴリの整理と合成データ準備
+
+ステップ1の変換結果（統計）から、以下のカテゴリが既存データセットではカバーできていないことが判明した。
+
+| FOX_COカテゴリ | OpenPII (ja) | ner-wikipedia | 状態 |
+| --- | --- | --- | --- |
+| `network_identifier` | 0件 | 0件 | **完全未カバー** → 合成必要 |
+| `system_config` | 0件 | 0件 | **完全未カバー** → 合成必要 |
+| `financial_info` | 9,399件 ※1 | 0件 | **部分カバー** → 不足分を合成 |
+| `transaction_id` | 0件 | 0件 | **完全未カバー** → 合成必要 |
+
+※1 OpenPII の `financial_info` は `CREDITCARDNUMBER`・`TAXNUM` のみ。`売上`・`原価`・`利益率`・`契約金額`・`個人の給与・報酬額` は未カバー。
+
+データ合成の前に、各カテゴリのサブタイプ・発生シチュエーション・例を以下のYAMLに整理する。
+
+```
+experiments/01_data_processing/category_breakdown.yaml
+```
+
+### 3. OSSなLLMを用いたデータ合成
+
+`experiments/01_data_processing/category_breakdown.yaml`でブレイクダンしたそれぞれのデータに対して次のような流れでデータ合成を行う
+
+疑似コード
+```python
+positive_data = []
+negative_data = []
+for category in all_categories:
+  for subcategory in category["list_subcategory"]:
+    for situatiation in category["list_situatiation"]:
+      text_with_confidential_info = LLM("{situatiation}という場面で{subcategory}を含む例文を作成して")
+      positive_data.append(text_with_confidential_info)
+
+      text_outwith_confidential_info = LLM("{situatiation}という場面で{subcategory}を含みそうでギリギリ含まないような例文を作成して")
+      negative_data.append(text_outwith_confidential_info)
+
+dataset= positive_data + positive_data
+```
+これはあくまで例です。実際にはfew-shot promptingなどで例を与えたりしています。
