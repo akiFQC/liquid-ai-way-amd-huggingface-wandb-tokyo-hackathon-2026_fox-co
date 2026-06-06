@@ -39,6 +39,7 @@ Provider = Literal[
     "fireworks-ai",
     "groq",
     "cerebras",
+    "deepinfra",
     "nebius",
     "novita",
     "nscale",

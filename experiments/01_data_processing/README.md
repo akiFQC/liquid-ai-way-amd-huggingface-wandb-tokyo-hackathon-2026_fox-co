@@ -264,3 +264,59 @@ dataset= positive_data + positive_data
 これはあくまで例です。実際にはfew-shot promptingなどで例を与えたりしています。
 
 データ合成には`src/utils/hf_llm_inference.py`をモジュールとして使います。
+
+#### 実装方針
+
+注釈（`annotation_json`）の正確性を担保するため、LLM に注釈 JSON を直接生成させるのではなく、
+
+> **先に entity 値をプログラムで合成し、LLM には「その値を verbatim で含む日本語例文」だけを書かせる**
+
+二段構えにしている（`synthesize_data.py` の `ENTITY_GENERATORS`）。
+
+- **positive**: サブタイプ形式に沿ったランダムな現実的値（IP/MAC/請求書番号/金額など）を生成 → LLM がその値を一字一句そのまま含む日本語例文を作成 → 生成例文に値が verbatim で含まれることを検証してから、`annotation_json` の **対象カテゴリのみ**に値を格納（指定値以外の機密情報は入れないよう指示）。
+- **negative**: 対象カテゴリの話題に触れつつ具体値を含まないハードネガティブ例文を生成 → カテゴリ単位の正規表現で値の漏れを best-effort 検査 → `annotation_json` は **全11キー空配列**。
+
+採用モデルは **`google/gemma-4-26B-A4B-it`**（`deepinfra` プロバイダ経由、コスパ・ライセンス自由度重視）。`MODEL` / `PROVIDER` で上書き可。
+
+#### 使用方法
+
+```bash
+# リポジトリルートから実行（.env の HF_TOKEN を自動読込）
+uv run experiments/01_data_processing/synthesize_data.py
+
+# 動作確認: 各サブタイプ1シチュエーションだけ・並列度を抑えて少量生成
+uv run experiments/01_data_processing/synthesize_data.py --limit-situations 1 --concurrency 8
+
+# モデル / 並列度の上書き
+MODEL=... PROVIDER=... uv run experiments/01_data_processing/synthesize_data.py --concurrency 24
+```
+
+生成結果は1件完了するごとに（tqdm の進捗バー付きで）逐次保存される。
+
+| 保存先 | 内容 |
+| --- | --- |
+| `experiments/data/synthetic/synthetic.jsonl` | 逐次追記される生データ（`input_text` / `annotation_json` + provenance 用 `_meta`）。中断後の再実行で `_meta.task_id` を見て resume する |
+| `experiments/data/synthetic_processed/` | 完了後に JSONL を変換した HF `datasets` の Arrow 形式（`input_text` / `annotation_json` の2カラムのみ）。`--no-export` で抑止 |
+
+主なオプション: `--reps`（同一組み合わせの生成本数）、`--limit-situations`、`--temperature`、`--seed`（値生成の再現）、`--overwrite`（resume せず作り直す）。
+
+
+###
+
+### 4. データの混合とデータ拡張
+
+1と3で作成したデータを混合する。
+
+#### 3つのデータの統計上の整理
+
+
+
+
+
+このとき、
+```
+```
+
+###　5. データ整形
+
+###　6. 
