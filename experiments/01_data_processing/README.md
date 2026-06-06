@@ -136,6 +136,24 @@
 - huggingface datasetsの形式にしておく事。
 - 変換後は、適当な名前で `experiments/data` に一時的に保存しておくこと。
 
+#### 保存形式
+
+HuggingFace `datasets` の Arrow 形式（`Dataset.save_to_disk()`）で保存する。各行は以下の2カラムを持つ。
+
+| カラム名 | 型 | 内容 |
+| --- | --- | --- |
+| `input_text` | `string` | PIIを含む元テキスト |
+| `annotation_json` | `string` | FOX_COカテゴリ11キーをすべて含むJSONオブジェクトの文字列。対応エンティティが存在しないキーは空リスト `[]` |
+
+行の例:
+
+```json
+{
+  "input_text": "田中一郎さんへ、請求書をtanaka@example.co.jpまでお送りください。",
+  "annotation_json": "{\"address\": [], \"company_name\": [], \"email_address\": [\"tanaka@example.co.jp\"], \"human_name\": [\"田中一郎\"], \"phone_number\": [], \"account_identifier\": [], \"network_identifier\": [], \"system_config\": [], \"project_info\": [], \"financial_info\": [], \"transaction_id\": []}"
+}
+```
+
 #### 使用方法
 
 ##### スクリプトの実行
