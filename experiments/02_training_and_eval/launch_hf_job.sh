@@ -46,7 +46,7 @@ SCRIPT="$REPO_ROOT/experiments/02_training_and_eval/train.py"
 # Forward each optional training override as `--env VAR=value` (only those
 # that are set).
 ENV_ARGS=(--env "DATASET=$DATASET")
-for var in MODEL_ID DATASET_SLICE DATASET_MAPPER MAX_STEPS BATCH_SIZE \
+for var in MODEL_ID DATASET_SLICE DATASET_MAPPER MAX_STEPS MAX_EPOCHS BATCH_SIZE \
   LR OUTPUT_DIR PUSH_TO_HUB WANDB_RUN_NAME EVAL_SPLIT_RATIO EVAL_SAMPLES; do
   if [[ -n "${!var:-}" ]]; then
     ENV_ARGS+=(--env "$var=${!var}")

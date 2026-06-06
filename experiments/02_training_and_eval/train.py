@@ -39,7 +39,8 @@ Env overrides (all optional unless noted):
     EVAL_SPLIT_RATIO train から切り出す eval 比率 (default 0.1)
     EVAL_SAMPLES    評価サンプル数 (default 50; 0 = スキップ)
     SKIP_TRAINING   1 に設定すると学習をスキップしてevalのみ実行 (default 0)
-    MAX_STEPS       学習ステップ数 (default 200)
+    MAX_STEPS       学習ステップ数 (default 200; MAX_EPOCHS と排他)
+    MAX_EPOCHS      エポック数 (MAX_STEPS と排他; 設定時は epoch 単位でスケジューリング)
     BATCH_SIZE      per-device batch size (default 4)
     LR              learning rate (default 2e-4)
     PUSH_TO_HUB     マージ済みチェックポイントの HF repo id
@@ -49,6 +50,7 @@ Env overrides (all optional unless noted):
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -59,6 +61,8 @@ if TYPE_CHECKING:
     from trl import SFTTrainer
     from wandb.sdk.wandb_run import Run
 
+
+_GRAD_ACCUM = 16
 
 # ---------------------------------------------------------------------------
 # Chat template (inlined from chat_template.jinja for HF Jobs single-file compatibility)
@@ -489,11 +493,17 @@ def build_trainer(
     dataset: Dataset,
     *,
     max_steps: int,
+    num_train_epochs: int | None,
     batch_size: int,
     lr: float,
     output_dir: str,
 ) -> SFTTrainer:
-    """Canonical LFM2 LoRA recipe per https://docs.liquid.ai/lfm/fine-tuning/unsloth."""
+    """Canonical LFM2 LoRA recipe per https://docs.liquid.ai/lfm/fine-tuning/unsloth.
+
+    Scheduling mode:
+      - num_train_epochs is not None → epoch mode (max_steps ignored, set to -1)
+      - otherwise → step mode (max_steps controls length)
+    """
     from peft import LoraConfig
     from trl import SFTConfig, SFTTrainer
 
@@ -513,17 +523,23 @@ def build_trainer(
         task_type="CAUSAL_LM",
         bias="none",
     )
+
+    # max_steps is always pre-computed (estimated from epochs * steps_per_epoch if needed).
+    # Use it uniformly for warmup / logging / save, regardless of scheduling mode.
+    use_epochs = num_train_epochs is not None
     cfg = SFTConfig(
         output_dir=output_dir,
         per_device_train_batch_size=batch_size,
-        gradient_accumulation_steps=4,
-        max_steps=max_steps,
+        gradient_accumulation_steps=_GRAD_ACCUM,
+        num_train_epochs=num_train_epochs if use_epochs else 1,
+        max_steps=-1 if use_epochs else max_steps,
         learning_rate=lr,
         warmup_steps=max(10, max_steps // 20),
         lr_scheduler_type="linear",
         optim="adamw_torch",
         weight_decay=0.01,
-        logging_steps=max(1, max_steps // 50),
+        logging_steps=1,
+        logging_first_step=True,
         report_to=["wandb"],
         bf16=True,
         save_strategy="steps",
@@ -593,26 +609,40 @@ def main() -> None:
         )
 
     model_id = os.environ.get("MODEL_ID", "LiquidAI/LFM2-350M")
-    dataset_slice = int(os.environ.get("DATASET_SLICE", "1024"))
+    dataset_slice = int(os.environ.get("DATASET_SLICE", "0"))
     eval_split_ratio = float(os.environ.get("EVAL_SPLIT_RATIO", "0.1"))
     eval_samples = int(os.environ.get("EVAL_SAMPLES", "50"))
     skip_training = os.environ.get("SKIP_TRAINING", "0").strip() == "1"
-    max_steps = int(os.environ.get("MAX_STEPS", "200"))
+    _max_steps_raw = os.environ.get("MAX_STEPS")
+    _max_epochs_raw = os.environ.get("MAX_EPOCHS")
+    if _max_steps_raw and _max_epochs_raw:
+        raise SystemExit(
+            "[fox-co] MAX_STEPS と MAX_EPOCHS は同時に指定できません。どちらか一方を使用してください。"
+        )
+    num_train_epochs: int | None = int(_max_epochs_raw) if _max_epochs_raw else None
+    max_steps: int = int(_max_steps_raw) if _max_steps_raw else 200
     batch_size = int(os.environ.get("BATCH_SIZE", "4"))
     lr = float(os.environ.get("LR", "2e-4"))
     output_dir = os.environ.get("OUTPUT_DIR", "/tmp/lfm2-fox-co")
     push_to_hub = os.environ.get("PUSH_TO_HUB")
     mapper = _parse_dataset_mapper(os.environ.get("DATASET_MAPPER"))
 
+    schedule_desc = f"epochs={num_train_epochs}" if num_train_epochs else f"max_steps={max_steps}"
     print(
         f"[fox-co] torch={torch.__version__} cuda={torch.cuda.is_available()} "
         f"model={model_id} dataset={dataset_name} slice={dataset_slice} "
-        f"skip_training={skip_training} max_steps={max_steps} bs={batch_size} lr={lr}"
+        f"skip_training={skip_training} {schedule_desc} bs={batch_size} lr={lr}"
     )
 
     train_ds, eval_ds = load_training_dataset(
         dataset_name, dataset_slice, mapper, eval_split_ratio
     )
+
+    if num_train_epochs is not None:
+        steps_per_epoch = math.ceil(len(train_ds) / (batch_size * _GRAD_ACCUM))
+        max_steps = steps_per_epoch * num_train_epochs
+        print(f"[fox-co] MAX_EPOCHS={num_train_epochs} → estimated max_steps={max_steps} "
+              f"(train={len(train_ds)} rows, steps_per_epoch={steps_per_epoch})")
 
     tags = ["text", "lfm2", "lora", "fox-co", "pii"]
     if skip_training:
@@ -631,6 +661,7 @@ def main() -> None:
             "eval_samples": eval_samples,
             "skip_training": skip_training,
             "max_steps": max_steps if not skip_training else 0,
+            "num_train_epochs": num_train_epochs,
             "batch_size": batch_size,
             "lr": lr,
         },
@@ -641,7 +672,12 @@ def main() -> None:
 
     if not skip_training:
         trainer = build_trainer(
-            model, tok, train_ds, max_steps=max_steps, batch_size=batch_size, lr=lr, output_dir=output_dir
+            model, tok, train_ds,
+            max_steps=max_steps,
+            num_train_epochs=num_train_epochs,
+            batch_size=batch_size,
+            lr=lr,
+            output_dir=output_dir,
         )
         print("[fox-co] Starting training...")
         out = trainer.train()
