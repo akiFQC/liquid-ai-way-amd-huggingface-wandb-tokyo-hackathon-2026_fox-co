@@ -53,6 +53,19 @@ def _empty_annotation() -> dict[str, list]:
     return {k: [] for k in ALL_KEYS}
 
 
+def _print_stats(ds, label: str) -> None:
+    total = len(ds)
+    print(f"\n  [{label}] {total:,} rows")
+    print(f"  {'カテゴリ':<30}  {'件数':>8}  {'行数':>8}  {'行カバー率':>10}")
+    print(f"  {'-'*30}  {'-'*8}  {'-'*8}  {'-'*10}")
+    for key in ALL_KEYS:
+        entity_counts = [len(json.loads(row["annotation_json"])[key]) for row in ds]
+        total_entities = sum(entity_counts)
+        rows_with_entity = sum(1 for c in entity_counts if c > 0)
+        coverage = rows_with_entity / total * 100 if total > 0 else 0.0
+        print(f"  {key:<30}  {total_entities:>8,}  {rows_with_entity:>8,}  {coverage:>9.1f}%")
+
+
 # ---------------------------------------------------------------------------
 # OpenPII 1.5M  (ai4privacy/pii-masking-openpii-1.5m)
 # Expected columns: source_text, privacy_mask (list of {value, label, start, end})
@@ -83,9 +96,10 @@ def process_openpii(data_dir: Path) -> None:
         remove_columns=ja.column_names,
         desc="OpenPII → target schema",
     )
+    _print_stats(processed, "OpenPII 1.5M (ja)")
     out = data_dir / "openpii_processed"
     processed.save_to_disk(str(out))
-    print(f"  Saved {len(processed):,} rows → {out}")
+    print(f"\n  Saved {len(processed):,} rows → {out}")
 
 
 # ---------------------------------------------------------------------------
@@ -107,15 +121,16 @@ def _process_wikipedia_row(row: dict) -> dict:
 
 def process_wikipedia(data_dir: Path) -> None:
     print("Loading stockmarkteam/ner-wikipedia-dataset …")
-    ds = load_dataset("stockmarkteam/ner-wikipedia-dataset", split="train")
+    ds = load_dataset("stockmark/ner-wikipedia-dataset", split="train")
     processed = ds.map(
         _process_wikipedia_row,
         remove_columns=ds.column_names,
         desc="ner-wikipedia → target schema",
     )
+    _print_stats(processed, "ner-wikipedia-dataset")
     out = data_dir / "ner_wikipedia_processed"
     processed.save_to_disk(str(out))
-    print(f"  Saved {len(processed):,} rows → {out}")
+    print(f"\n  Saved {len(processed):,} rows → {out}")
 
 
 # ---------------------------------------------------------------------------
