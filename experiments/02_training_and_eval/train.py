@@ -38,6 +38,7 @@ Env overrides (all optional unless noted):
     DATASET_SLICE   行数上限 (default 1024; 0 = 全件)
     EVAL_SPLIT_RATIO train から切り出す eval 比率 (default 0.1)
     EVAL_SAMPLES    評価サンプル数 (default 0 = 全件使用)
+    EVAL_BATCH_SIZE eval バッチサイズ (default 16)
     SKIP_TRAINING   1 に設定すると学習をスキップしてevalのみ実行 (default 0)
     MAX_STEPS       学習ステップ数 (default 200; MAX_EPOCHS と排他)
     MAX_EPOCHS      エポック数 (MAX_STEPS と排他; 設定時は epoch 単位でスケジューリング)
@@ -164,6 +165,7 @@ def run_eval(
     tok: PreTrainedTokenizerBase,
     eval_ds: Dataset,
     n_samples: int,
+    batch_size: int = 16,
 ) -> EvalResult:
     """Run PII extraction eval. Pure: returns EvalResult, no side effects.
 
@@ -171,8 +173,10 @@ def run_eval(
     repetition_penalty=1.05). Entity matching is exact string match.
     """
     import json
+    import math
 
     import torch
+    from tqdm import tqdm
 
     # CRITICAL: training leaves dropout active; must call eval() before generate().
     model.eval()
@@ -187,61 +191,92 @@ def run_eval(
             micro_f1=0.0,
         )
 
-    samples = eval_ds.select(range(actual))
+    # Decoder-only models require left-padding for batched generation.
+    orig_padding_side = tok.padding_side
+    tok.padding_side = "left"
+    if tok.pad_token_id is None:
+        tok.pad_token_id = tok.eos_token_id
+
+    samples = eval_ds.shuffle(seed=42).select(range(actual))
     json_ok = 0
     cat_stats: dict[str, dict[str, int]] = {
         k: {"tp": 0, "fp": 0, "fn": 0} for k in PII_CATEGORIES
     }
 
-    from tqdm import tqdm
+    n_batches = math.ceil(actual / batch_size)
+    with tqdm(total=actual, desc="eval", unit="sample") as pbar:
+        for batch_idx in range(n_batches):
+            batch = samples.select(range(
+                batch_idx * batch_size,
+                min((batch_idx + 1) * batch_size, actual),
+            ))
 
-    for row in tqdm(samples, total=actual, desc="eval", unit="sample"):
-        msgs = row["messages"]
-        prompt_msgs = [m for m in msgs if m["role"] != "assistant"]
-        gold_str = next((m["content"] for m in msgs if m["role"] == "assistant"), "{}")
+            prompt_msgs_list = [
+                [m for m in row["messages"] if m["role"] != "assistant"]
+                for row in batch
+            ]
+            gold_strs = [
+                next((m["content"] for m in row["messages"] if m["role"] == "assistant"), "{}")
+                for row in batch
+            ]
 
-        inputs = tok.apply_chat_template(
-            prompt_msgs,
-            add_generation_prompt=True,
-            return_tensors="pt",
-            tokenize=True,
-            return_dict=True,
-        ).to(model.device)
+            encoded = [
+                tok.apply_chat_template(
+                    msgs,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    return_dict=True,
+                )
+                for msgs in prompt_msgs_list
+            ]
 
-        with torch.no_grad():
-            gen = model.generate(
-                **inputs,
-                do_sample=True,
-                temperature=0.3,
-                min_p=0.15,
-                repetition_penalty=1.05,
-                max_new_tokens=512,
-            )
+            inputs = tok.pad(
+                encoded,
+                return_tensors="pt",
+                padding=True,
+            ).to(model.device)
 
-        new_tokens = gen[0][inputs["input_ids"].shape[1]:]
-        raw_output = tok.decode(new_tokens, skip_special_tokens=True).strip()
+            prompt_len = inputs["input_ids"].shape[1]
 
-        try:
-            pred = json.loads(raw_output)
-            if not isinstance(pred, dict):
-                raise ValueError
-            json_ok += 1
-        except (json.JSONDecodeError, ValueError):
-            pred = {}
+            with torch.no_grad():
+                gen = model.generate(
+                    **inputs,
+                    do_sample=True,
+                    temperature=0.3,
+                    min_p=0.15,
+                    repetition_penalty=1.05,
+                    max_new_tokens=512,
+                )
 
-        try:
-            gold = json.loads(gold_str)
-        except (json.JSONDecodeError, ValueError):
-            gold = {}
+            for i, gold_str in enumerate(gold_strs):
+                new_tokens = gen[i][prompt_len:]
+                raw_output = tok.decode(new_tokens, skip_special_tokens=True).strip()
 
-        for key in PII_CATEGORIES:
-            pred_vals = pred.get(key, [])
-            gold_vals = gold.get(key, [])
-            pred_set = set(pred_vals) if isinstance(pred_vals, list) else set()
-            gold_set = set(gold_vals) if isinstance(gold_vals, list) else set()
-            cat_stats[key]["tp"] += len(pred_set & gold_set)
-            cat_stats[key]["fp"] += len(pred_set - gold_set)
-            cat_stats[key]["fn"] += len(gold_set - pred_set)
+                try:
+                    pred = json.loads(raw_output)
+                    if not isinstance(pred, dict):
+                        raise ValueError
+                    json_ok += 1
+                except (json.JSONDecodeError, ValueError):
+                    pred = {}
+
+                try:
+                    gold = json.loads(gold_str)
+                except (json.JSONDecodeError, ValueError):
+                    gold = {}
+
+                for key in PII_CATEGORIES:
+                    pred_vals = pred.get(key, [])
+                    gold_vals = gold.get(key, [])
+                    pred_set = set(pred_vals) if isinstance(pred_vals, list) else set()
+                    gold_set = set(gold_vals) if isinstance(gold_vals, list) else set()
+                    cat_stats[key]["tp"] += len(pred_set & gold_set)
+                    cat_stats[key]["fp"] += len(pred_set - gold_set)
+                    cat_stats[key]["fn"] += len(gold_set - pred_set)
+
+            pbar.update(len(batch))
+
+    tok.padding_side = orig_padding_side
 
     total_tp = total_fp = total_fn = 0
     per_category: dict[str, CategoryResult] = {}
@@ -614,6 +649,7 @@ def main() -> None:
     dataset_slice = int(os.environ.get("DATASET_SLICE", "0"))
     eval_split_ratio = float(os.environ.get("EVAL_SPLIT_RATIO", "0.1"))
     eval_samples = int(os.environ.get("EVAL_SAMPLES", "0"))
+    eval_batch_size = int(os.environ.get("EVAL_BATCH_SIZE", "16"))
     skip_training = os.environ.get("SKIP_TRAINING", "0").strip() == "1"
     _max_steps_raw = os.environ.get("MAX_STEPS")
     _max_epochs_raw = os.environ.get("MAX_EPOCHS")
@@ -661,6 +697,7 @@ def main() -> None:
             "dataset_mapper": mapper,
             "eval_split_ratio": eval_split_ratio,
             "eval_samples": eval_samples,
+            "eval_batch_size": eval_batch_size,
             "skip_training": skip_training,
             "max_steps": max_steps if not skip_training else 0,
             "num_train_epochs": num_train_epochs,
@@ -691,7 +728,7 @@ def main() -> None:
 
     if eval_ds is not None:
         n = eval_samples if eval_samples > 0 else len(eval_ds)
-        result = run_eval(eval_target, tok, eval_ds, n)
+        result = run_eval(eval_target, tok, eval_ds, n, batch_size=eval_batch_size)
         print_report(result)
         log_to_wandb(result, run)
 
