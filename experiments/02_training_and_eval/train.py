@@ -37,7 +37,7 @@ Env overrides (all optional unless noted):
     DATASET_MAPPER  明示的な列マッピング: 'user=q,assistant=a[,system=s]'
     DATASET_SLICE   行数上限 (default 1024; 0 = 全件)
     EVAL_SPLIT_RATIO train から切り出す eval 比率 (default 0.1)
-    EVAL_SAMPLES    評価サンプル数 (default 50; 0 = スキップ)
+    EVAL_SAMPLES    評価サンプル数 (default 0 = 全件使用)
     SKIP_TRAINING   1 に設定すると学習をスキップしてevalのみ実行 (default 0)
     MAX_STEPS       学習ステップ数 (default 200; MAX_EPOCHS と排他)
     MAX_EPOCHS      エポック数 (MAX_STEPS と排他; 設定時は epoch 単位でスケジューリング)
@@ -611,7 +611,7 @@ def main() -> None:
     model_id = os.environ.get("MODEL_ID", "LiquidAI/LFM2-350M")
     dataset_slice = int(os.environ.get("DATASET_SLICE", "0"))
     eval_split_ratio = float(os.environ.get("EVAL_SPLIT_RATIO", "0.1"))
-    eval_samples = int(os.environ.get("EVAL_SAMPLES", "50"))
+    eval_samples = int(os.environ.get("EVAL_SAMPLES", "0"))
     skip_training = os.environ.get("SKIP_TRAINING", "0").strip() == "1"
     _max_steps_raw = os.environ.get("MAX_STEPS")
     _max_epochs_raw = os.environ.get("MAX_EPOCHS")
@@ -687,8 +687,9 @@ def main() -> None:
         print("[fox-co] SKIP_TRAINING=1: skipping training, running eval only.")
         eval_target = model
 
-    if eval_ds is not None and eval_samples > 0:
-        result = run_eval(eval_target, tok, eval_ds, eval_samples)
+    if eval_ds is not None:
+        n = eval_samples if eval_samples > 0 else len(eval_ds)
+        result = run_eval(eval_target, tok, eval_ds, n)
         print_report(result)
         log_to_wandb(result, run)
 
