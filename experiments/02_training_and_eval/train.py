@@ -265,11 +265,24 @@ def run_eval(
                 except (json.JSONDecodeError, ValueError):
                     gold = {}
 
+                def _to_str_set(vals):
+                    if not isinstance(vals, list):
+                        return set()
+                    result = set()
+                    for v in vals:
+                        if isinstance(v, str):
+                            result.add(v)
+                        elif isinstance(v, dict):
+                            result.update(str(x) for x in v.values() if x is not None)
+                        else:
+                            result.add(str(v))
+                    return result
+
                 for key in PII_CATEGORIES:
                     pred_vals = pred.get(key, [])
                     gold_vals = gold.get(key, [])
-                    pred_set = set(pred_vals) if isinstance(pred_vals, list) else set()
-                    gold_set = set(gold_vals) if isinstance(gold_vals, list) else set()
+                    pred_set = _to_str_set(pred_vals)
+                    gold_set = _to_str_set(gold_vals)
                     cat_stats[key]["tp"] += len(pred_set & gold_set)
                     cat_stats[key]["fp"] += len(pred_set - gold_set)
                     cat_stats[key]["fn"] += len(gold_set - pred_set)
