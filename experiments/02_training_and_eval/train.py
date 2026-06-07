@@ -193,7 +193,9 @@ def run_eval(
         k: {"tp": 0, "fp": 0, "fn": 0} for k in PII_CATEGORIES
     }
 
-    for row in samples:
+    from tqdm import tqdm
+
+    for row in tqdm(samples, total=actual, desc="eval", unit="sample"):
         msgs = row["messages"]
         prompt_msgs = [m for m in msgs if m["role"] != "assistant"]
         gold_str = next((m["content"] for m in msgs if m["role"] == "assistant"), "{}")
