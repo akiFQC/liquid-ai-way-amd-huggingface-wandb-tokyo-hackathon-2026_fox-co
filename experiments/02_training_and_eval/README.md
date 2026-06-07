@@ -6,9 +6,10 @@ LFM2 の LoRA fine-tune と PII 抽出タスクの評価を行うスクリプト
 
 | ファイル | 役割 |
 |---|---|
-| `train.py` | 学習・評価のエントリーポイント（UV script） |
-| `eval.py` | 評価ロジック（importable モジュール） |
+| `train.py` | 学習・評価のエントリーポイント（UV script、eval ロジックをインライン化済み） |
+| `eval.py` | 評価ロジック（ローカル import 用。HF Jobs では train.py にインライン化済み） |
 | `chat_template.jinja` | fox-co PII 抽出タスク用の chat template |
+| `launch_hf_job.sh` | HF Jobs へ submit するラッパースクリプト |
 
 ---
 
@@ -65,27 +66,9 @@ SKIP_TRAINING=1 \
 
 ## HuggingFace Jobs での実行
 
-> **制約**: HF Jobs は単一スクリプトファイルのみアップロードします。
-> `eval.py` と `chat_template.jinja` はコンテナ内で参照できないため、
-> **HF Jobs 実行時は `EVAL_SAMPLES` が自動で `0` に強制**されます。
-> chat template は下記の手順でインライン化が必要です。
-
-### 事前準備: chat template のインライン化
-
-`train.py` の `load_base_model()` 内にある
-
-```python
-template_path = pathlib.Path(__file__).parent / "chat_template.jinja"
-tok.chat_template = template_path.read_text(encoding="utf-8")
-```
-
-を以下のように書き換えてから submit してください:
-
-```python
-tok.chat_template = r"""{{- bos_token -}}
-... (chat_template.jinja の内容をそのまま貼り付け) ...
-"""
-```
+> HF Jobs は単一スクリプトファイルのみアップロードします。
+> `eval.py` と `chat_template.jinja` は `train.py` にインライン化済みのため、
+> 追加の作業なしでそのまま submit できます。
 
 ### 起動スクリプト（推奨）
 
@@ -115,7 +98,6 @@ DATASET=your-org/japanese-pii-sft \
 - `.env` の読み込みと必須変数のチェック
 - `PUSH_TO_HUB` が設定されている場合の HF Token 書き込み権限チェック
 - secrets を一時ファイル経由で渡す（argv / `ps aux` に露出させない）
-- `EVAL_SAMPLES=0` を強制（HF Jobs コンテナ内で `eval.py` が参照不可のため）
 
 ### 起動スクリプトの主な環境変数
 
@@ -128,6 +110,7 @@ DATASET=your-org/japanese-pii-sft \
 | `DRY_RUN` | — | `1` にすると submit をスキップしてコマンドを表示 |
 | `PUSH_TO_HUB` | — | マージ済みチェックポイントの push 先 HF repo id |
 | `WANDB_RUN_NAME` | — | W&B run 名 |
+| `EVAL_SAMPLES` | `50` | 評価サンプル数（`0` = eval スキップ）|
 | `MAX_STEPS` / `BATCH_SIZE` / `LR` | train.py デフォルト | ハイパーパラメータ |
 
 ### 手動での起動（参考）
@@ -227,3 +210,13 @@ LFM2 モデルに fox-co PII 抽出用のシステムプロンプトを注入す
 > テンプレート本文を `train.py` 内に文字列定数としてインライン化してください。
 
 
+##　実行例
+
+```
+HF_FLAVOR=l40sx1 HF_TIMEOUT=4h \
+DATASET=akiFQC/japanese-confidential-information-extraction-sft \
+MAX_STEPS=2000 \
+PUSH_TO_HUB=akiFQC/LFM2.5-1.2B-JP-202606-Conf-Extract \
+WANDB_RUN_NAME=fox-expretimet-001 \
+  ./experiments/02_training_and_eval/launch_hf_job.sh
+```
