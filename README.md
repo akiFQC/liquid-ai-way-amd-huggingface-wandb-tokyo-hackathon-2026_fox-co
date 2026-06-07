@@ -6,6 +6,33 @@ on an on-site **AMD Ryzen AI PC** for the demo.
 
 > 📅 [Register on Luma](https://luma.com/7fjlam5k) · 💬 [Discord](https://discord.gg/WjgTAr9E) · 📖 [Full event guide (Notion)](https://www.notion.so/370cbef042ad8120b019f78c480e41d8) · 🎟️ $150 HF credit for registered teams
 
+## 🦊 Team fox-co: What We Built
+
+We fine-tuned **LFM2.5-1.2B** to extract confidential information from Japanese organizational text — structured PII extraction covering **11 sensitive entity categories** in a single inference pass.
+
+| | |
+|---|---|
+| **Task** | Japanese Confidential Information Extraction (structured NER → JSON) |
+| **Base model** | `LiquidAI/LFM2.5-1.2B` |
+| **Fine-tuned model** | [`akiFQC/LFM2.5-1.2B-JP-202606-Conf-Extract`](https://huggingface.co/akiFQC/LFM2.5-1.2B-JP-202606-Conf-Extract) |
+| **GGUF (on-device)** | Q4\_K\_M · Q8\_0 · BF16 — runs via llama.cpp on AMD Ryzen AI PC |
+
+### 11 extraction categories
+
+`address` · `company_name` · `email_address` · `human_name` · `phone_number` · `account_identifier` · `network_identifier` · `system_config` · `project_info` · `financial_info` · `transaction_id`
+
+### Pipeline overview
+
+**1 · Data** — Combined [OpenPII 1.5M](https://huggingface.co/datasets/ai4privacy/pii-masking-openpii-1.5m) (Japanese subset, ~20 K rows) and [ner-wikipedia-dataset](https://huggingface.co/datasets/stockmark/ner-wikipedia-dataset) (~5 K rows). Identified coverage gaps in four rare categories and generated synthetic Japanese sentences using Gemma-4-26B-A4B-it (entity seeding → LLM-authored sentences, with hard-negative variants). Mixed samples were augmented into longer documents to build a final SFT dataset of **~41 K rows**.
+
+**2 · Training** — LoRA SFT on LFM2.5-1.2B (r=16, α=32, bf16, effective batch 64, lr=2e-4, 2 048-token context) via TRL `SFTTrainer` on HuggingFace Jobs. Evaluation tracked JSON parse rate and micro-averaged F1 across all 11 categories, logged to W&B.
+
+**3 · On-device deployment** — Converted the HF checkpoint to GGUF (Q4\_K\_M / Q8\_0 / BF16) for llama.cpp, targeting the AMD Ryzen AI PC demo station.
+
+See [`experiments/README.md`](experiments/README.md) for the full walkthrough and [`experiments/HOW_TO_USE_MODEL.md`](experiments/HOW_TO_USE_MODEL.md) for usage examples.
+
+---
+
 ## ⚡ TL;DR: your first run in 5 commands
 
 ```bash
