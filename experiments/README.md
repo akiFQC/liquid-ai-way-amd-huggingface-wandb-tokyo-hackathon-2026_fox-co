@@ -101,6 +101,12 @@
 `experiments/02_training_and_eval` 
 
 
-## Step3: 生成とショーケース
+## Step3: GGUFへの変換
 
-`experiments/03_generation_and_showcase`
+`akiFQC/LFM2.5-1.2B-JP-202606-Conf-Extract`をGGUFフォーマットに変換して、HFにuploadしなおしますます。
+
+
+
+`experiments/03_model_format_converting` 
+
+アップロード先: `akiFQC/LFM2.5-1.2B-JP-202606-Conf-Extract-GGUF`

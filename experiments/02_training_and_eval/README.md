@@ -209,14 +209,3 @@ LFM2 モデルに fox-co PII 抽出用のシステムプロンプトを注入す
 > **HF Jobs に提出する場合**: HF Jobs は単一ファイルをアップロードするため、
 > テンプレート本文を `train.py` 内に文字列定数としてインライン化してください。
 
-
-##　実行例
-
-```
-HF_FLAVOR=l40sx1 HF_TIMEOUT=4h \
-DATASET=akiFQC/japanese-confidential-information-extraction-sft \
-MAX_STEPS=2000 \
-PUSH_TO_HUB=akiFQC/LFM2.5-1.2B-JP-202606-Conf-Extract \
-WANDB_RUN_NAME=fox-expretimet-001 \
-  ./experiments/02_training_and_eval/launch_hf_job.sh
-```
